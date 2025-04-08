@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
 
-node dist/main.js "$@"
+set -a && source .env && set +a
+
+${EXECUTOR:-node} dist/main.js "$@"

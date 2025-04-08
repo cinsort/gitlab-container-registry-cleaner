@@ -29,7 +29,9 @@ async function main() {
 
 	program.version(version);
 	program.description(
-		`GitLab Container Registry Cleaner ${version}\nClean tags from a container repository concurrently using given regex and age filter.\nSee [command] --help for more details.`,
+		`GitLab Container Registry Cleaner ${version}
+		Clean tags from a container repository concurrently using given regex and age filter.
+		See [command] --help for more details.`,
 	);
 
 	// list
@@ -150,6 +152,63 @@ async function main() {
 		)
 		.action(actionCleanRepository);
 
+	program
+		.command("clean-project")
+		.summary("Clean tags from all Container Repositories of a given project.")
+		.description(
+			"Clean tags from all container repositories of a given project concurrently using given regex and age filter. " +
+			"Only tags matching BOTH regex and age will be deleted. " +
+			"THIS IS A DESTRUCTIVE ACTION. Use with care.",
+		)
+		.argument(
+			"<project-id>",
+			"Project ID or path such as '42' or full project path 'group/subgroup/project-name'",
+		)
+		.option(
+			"-k, --keep-regex <regex>",
+			"Tags matching this regex will be kept. Match everything by default for safety.",
+			DEFAULT_KEEP_REGEX,
+		)
+		.option(
+			"-d, --delete-regex <regex>",
+			"Tags matching this regex will be deleted. Do not match anything by default for safety .",
+			DEFAULT_DELETE_REGEX,
+		)
+		.option(
+			"-a, --older-than-days <number>",
+			"Tags older than specified days will be deleted, all younger than N will be kept.",
+			DEFAULT_OLDER_THAN_DAYS.toString(),
+		)
+		.option(
+			"-c, --concurrency <number>",
+			"Number of promises running concurrently when requesting GitLab API",
+			DEFAULT_CONCURRENCY.toString(),
+		)
+		.option(
+			"--tags-per-page <number>",
+			"Number of tags to request per page when listing tags from GitLab API. Default is 50.",
+			DEFAULT_TAGS_PER_PAGE.toString(),
+		)
+		.option("--no-dry-run", "Disable dry-run. Dry run is enabled by default.")
+		.option(
+			"-o, --output-tags <file>",
+			"Output tag list to be deleted as JSON to specified file. Useful with dry-run to check nothing important will be deleted.",
+		)
+		.option(
+			"-n, --keep-most-recent <number>",
+			"Keep N most recent tags even if they match deletion criteria.",
+			DEFAULT_KEEP_MOST_RECENT.toString(),
+		)
+		.option(
+			"-j, --json-input <file>",
+			"JSON file containing pre-fetched repository list.",
+		)
+		.option(
+			"-v, --verbose",
+			"Enable verbose output, including details of tags to be deleted.",
+		)
+		.action(actionCleanProjectRepositories);
+
 	await program.parseAsync();
 }
 
@@ -170,6 +229,44 @@ async function actionListAllRepositories(opts: {
 		Number.parseInt(opts.endIndex),
 		opts.output,
 	);
+}
+
+async function actionCleanProjectRepositories(
+	projectId: string | number,
+	opts: {
+		keepRegex: string;
+		deleteRegex: string;
+		olderThanDays: string;
+		tagsPerPage: string;
+		concurrency: string;
+		dryRun: boolean;
+		outputTags?: string;
+		keepMostRecent: string;
+		jsonInput?: string;
+		verbose: boolean;
+	},
+) {
+	const cleaner = new GitLabContainerRepositoryCleaner({
+		dryRun: true,
+		concurrency: 1,
+	});
+	let repositories = await cleaner.getProjectContainerRepositories(projectId);
+    let repositoryIds = repositories.filter(item => item.name !== 'three').map(repository => repository.id);
+
+    await cleanRepositories(
+        repositoryIds,
+        {
+            keepRegex: opts.keepRegex,
+            deleteRegex: opts.deleteRegex,
+            olderThanDays: opts.olderThanDays,
+            tagsPerPage: opts.tagsPerPage,
+            concurrency: opts.concurrency,
+            dryRun: opts.dryRun,
+            outputTags: opts.outputTags,
+            keepMostRecent: opts.keepMostRecent,
+            verbose: opts.verbose,
+        }
+    )
 }
 
 async function actionCleanRepository(
@@ -257,6 +354,36 @@ async function actionCleanRepository(
 		repositoryIds = [Number(repositoryIdOrPath)];
 	}
 
+	await cleanRepositories(
+        repositoryIds,
+        {
+            keepRegex: opts.keepRegex,
+            deleteRegex: opts.deleteRegex,
+            olderThanDays: opts.olderThanDays,
+            tagsPerPage: opts.tagsPerPage,
+            concurrency: opts.concurrency,
+            dryRun: opts.dryRun,
+            outputTags: opts.outputTags,
+            keepMostRecent: opts.keepMostRecent,
+            verbose: opts.verbose,
+        }
+    )
+}
+
+async function cleanRepositories(
+	repositoryIds: number[],
+	opts: {
+        keepRegex: string;
+        deleteRegex: string;
+        olderThanDays: string;
+        tagsPerPage: string;
+        concurrency: string;
+        dryRun: boolean;
+        outputTags?: string;
+        keepMostRecent: string;
+        verbose: boolean;
+},
+) {
 	for (const repositoryId of repositoryIds) {
 		const cleaner = new GitLabContainerRepositoryCleaner({
 			dryRun: opts.dryRun,
@@ -284,6 +411,7 @@ async function actionListProjectRepositories(projectId: string | number, opts: {
 }
 
 async function actionListGroupRepositories(groupId: string | number, opts: { output?: string }) {
+	console.log(groupId);
 	const cleaner = new GitLabContainerRepositoryCleaner({
 		dryRun: true,
 		concurrency: 1,
